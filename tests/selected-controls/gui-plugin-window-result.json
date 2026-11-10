@@ -1,0 +1,133 @@
+{
+  "single": {
+    "routes": {
+      "Native Control 1": [
+        {
+          "name": "ACE Delay",
+          "id": "10726"
+        },
+        {
+          "name": "ACE Reverb",
+          "id": "10795"
+        }
+      ],
+      "Native Control 2": [
+        {
+          "name": "ACE Delay",
+          "id": "10749"
+        },
+        {
+          "name": "ACE Reverb",
+          "id": "10804"
+        }
+      ],
+      "Native Control 3": []
+    },
+    "visible_plugin_windows": [
+      {
+        "name": "P-2036-10726",
+        "visible": "1",
+        "x-off": "400",
+        "y-off": "350",
+        "x-size": "535",
+        "y-size": "388",
+        "custom-ui": "1"
+      }
+    ],
+    "selected_stripables": [
+      "2036",
+      "2490"
+    ]
+  },
+  "all": {
+    "routes": {
+      "Native Control 1": [
+        {
+          "name": "ACE Delay",
+          "id": "10726"
+        },
+        {
+          "name": "ACE Reverb",
+          "id": "10795"
+        },
+        {
+          "name": "ACE Delay",
+          "id": "10824"
+        },
+        {
+          "name": "ACE Reverb",
+          "id": "10893"
+        }
+      ],
+      "Native Control 2": [
+        {
+          "name": "ACE Delay",
+          "id": "10749"
+        },
+        {
+          "name": "ACE Reverb",
+          "id": "10804"
+        },
+        {
+          "name": "ACE Delay",
+          "id": "10847"
+        },
+        {
+          "name": "ACE Reverb",
+          "id": "10902"
+        }
+      ],
+      "Native Control 3": []
+    },
+    "visible_plugin_windows": [
+      {
+        "name": "P-2036-10824",
+        "visible": "1",
+        "x-off": "365",
+        "y-off": "170",
+        "x-size": "535",
+        "y-size": "388",
+        "custom-ui": "1"
+      },
+      {
+        "name": "P-2490-10847",
+        "visible": "1",
+        "x-off": "910",
+        "y-off": "170",
+        "x-size": "535",
+        "y-size": "388",
+        "custom-ui": "1"
+      },
+      {
+        "name": "P-2036-10893",
+        "visible": "1",
+        "x-off": "365",
+        "y-off": "610",
+        "x-size": "509",
+        "y-size": "248",
+        "custom-ui": "1"
+      },
+      {
+        "name": "P-2490-10902",
+        "visible": "1",
+        "x-off": "910",
+        "y-off": "610",
+        "x-size": "509",
+        "y-size": "248",
+        "custom-ui": "1"
+      }
+    ],
+    "selected_stripables": [
+      "2036",
+      "2490"
+    ]
+  },
+  "locale": "fr",
+  "menu_unchecked": "all newly added instance windows",
+  "menu_checked": "first newly added instance window only",
+  "preference_persisted_on_clean_exit": true,
+  "saved_single_window_preference": "1",
+  "menu_label_message_id": "Show only one plugin window at a time",
+  "localized_label_verified": true,
+  "documentation_screenshot_locale": "en_US"
+}

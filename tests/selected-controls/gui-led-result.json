@@ -1,0 +1,70 @@
+{
+  "before": {
+    "Native Control 1": {
+      "Gate": "1",
+      "32C EQ": "1",
+      "Comp": "1"
+    },
+    "Native Control 2": {
+      "Gate": "1",
+      "32C EQ": "1",
+      "Comp": "1"
+    },
+    "Native Control 3": {
+      "Gate": "0",
+      "32C EQ": "0",
+      "Comp": "0"
+    }
+  },
+  "off": {
+    "Native Control 1": {
+      "Gate": "0",
+      "32C EQ": "1",
+      "Comp": "1"
+    },
+    "Native Control 2": {
+      "Gate": "0",
+      "32C EQ": "1",
+      "Comp": "1"
+    },
+    "Native Control 3": {
+      "Gate": "0",
+      "32C EQ": "0",
+      "Comp": "0"
+    }
+  },
+  "mixed": {
+    "Native Control 1": {
+      "Gate": "1",
+      "32C EQ": "0",
+      "Comp": "0"
+    },
+    "Native Control 2": {
+      "Gate": "1",
+      "32C EQ": "0",
+      "Comp": "0"
+    },
+    "Native Control 3": {
+      "Gate": "0",
+      "32C EQ": "0",
+      "Comp": "0"
+    }
+  },
+  "on": {
+    "Native Control 1": {
+      "Gate": "1",
+      "32C EQ": "1",
+      "Comp": "1"
+    },
+    "Native Control 2": {
+      "Gate": "1",
+      "32C EQ": "1",
+      "Comp": "1"
+    },
+    "Native Control 3": {
+      "Gate": "0",
+      "32C EQ": "0",
+      "Comp": "0"
+    }
+  }
+}

@@ -1,0 +1,182 @@
+{
+  "insert": {
+    "Native Control 1": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3402"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "3446"
+      },
+      {
+        "name": "ACE Delay",
+        "id": "11243"
+      }
+    ],
+    "Native Control 2": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3454"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "3498"
+      },
+      {
+        "name": "ACE Delay",
+        "id": "11220"
+      }
+    ],
+    "Native Control 3": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3506"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "3550"
+      }
+    ]
+  },
+  "hover-deleted": {
+    "Native Control 1": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3402"
+      },
+      {
+        "name": "ACE Delay",
+        "id": "11243"
+      }
+    ],
+    "Native Control 2": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3454"
+      },
+      {
+        "name": "ACE Delay",
+        "id": "11220"
+      }
+    ],
+    "Native Control 3": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3506"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "3550"
+      }
+    ]
+  },
+  "shift-deleted": {
+    "Native Control 1": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3402"
+      },
+      {
+        "name": "ACE Delay",
+        "id": "11243"
+      }
+    ],
+    "Native Control 2": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3454"
+      }
+    ],
+    "Native Control 3": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3506"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "3550"
+      }
+    ]
+  },
+  "repeated": {
+    "Native Control 1": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3402"
+      },
+      {
+        "name": "ACE Delay",
+        "id": "11243"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "15178"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "15206"
+      }
+    ],
+    "Native Control 2": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3454"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "15169"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "15197"
+      }
+    ],
+    "Native Control 3": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3506"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "3550"
+      }
+    ]
+  },
+  "repeated-deleted": {
+    "Native Control 1": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3402"
+      },
+      {
+        "name": "ACE Delay",
+        "id": "11243"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "15178"
+      }
+    ],
+    "Native Control 2": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3454"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "15169"
+      }
+    ],
+    "Native Control 3": [
+      {
+        "name": "XT-DC Drum Character (Mono)",
+        "id": "3506"
+      },
+      {
+        "name": "ACE Reverb",
+        "id": "3550"
+      }
+    ]
+  }
+}

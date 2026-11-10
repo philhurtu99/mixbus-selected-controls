@@ -1,0 +1,2117 @@
+From 3574b119353396af85da3af0ae2da158aee39491 Mon Sep 17 00:00:00 2001
+From: philippe clement <138938329+philhurtu99@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 22:18:51 -0500
+Subject: [PATCH] Link selected-channel controls, plugin chains and editor
+ batches
+
+Link compatible mixer controls and processor bypass across selected routes, including custom LV2 parameter edits. Add independent plugin insertion, matching-occurrence hover deletion, selection retention and configurable batch editor opening through an existing localized preference.
+
+Preserve Shift and quick-group overrides, relative fader groups, unrelated routes and protected processors. Include Linux integration and actual GUI verification, localization and porting notes. No theme files or proprietary DSP binaries are included.
+---
+ LOCAL-CHANGES.md                              |  79 +++++
+ gtk2_ardour/ardour.menus.in                   |   3 +
+ gtk2_ardour/ardour_ui_keys.cc                 |   5 +
+ gtk2_ardour/automation_controller.cc          |  20 +-
+ gtk2_ardour/generic_pluginui.cc               |   6 +
+ gtk2_ardour/lv2_plugin_ui.cc                  |   9 +-
+ gtk2_ardour/mixbus_widgets.mb.cc              |   8 +-
+ gtk2_ardour/mixer_ui.cc                       |  11 +
+ gtk2_ardour/processor_box.cc                  | 315 ++++++++++++++++--
+ gtk2_ardour/processor_box.h                   |   7 +
+ libs/ardour/ardour/route.h                    |   4 +
+ libs/ardour/automation_control.cc             |  72 ++++
+ libs/ardour/plug_insert_base.cc               |   7 +
+ libs/ardour/route.cc                          |  88 +++++
+ .../selected-controls/create_gui_session.lua  |  16 +
+ .../create_plugin_gui_session.lua             |  23 ++
+ .../gui-custom-lv2-result.json                |  90 +++++
+ .../gui-drum-character-result.json            | 215 ++++++++++++
+ tests/selected-controls/gui-fader-result.json |  58 ++++
+ tests/selected-controls/gui-led-result.json   |  70 ++++
+ .../gui-plugin-chain-result.json              | 182 ++++++++++
+ .../gui-plugin-window-result.json             | 133 ++++++++
+ tests/selected-controls/gui-result.json       | 110 ++++++
+ tests/selected-controls/integration.lua       | 100 ++++++
+ 24 files changed, 1588 insertions(+), 43 deletions(-)
+ create mode 100644 LOCAL-CHANGES.md
+ create mode 100644 tests/selected-controls/create_gui_session.lua
+ create mode 100644 tests/selected-controls/create_plugin_gui_session.lua
+ create mode 100644 tests/selected-controls/gui-custom-lv2-result.json
+ create mode 100644 tests/selected-controls/gui-drum-character-result.json
+ create mode 100644 tests/selected-controls/gui-fader-result.json
+ create mode 100644 tests/selected-controls/gui-led-result.json
+ create mode 100644 tests/selected-controls/gui-plugin-chain-result.json
+ create mode 100644 tests/selected-controls/gui-plugin-window-result.json
+ create mode 100644 tests/selected-controls/gui-result.json
+ create mode 100644 tests/selected-controls/integration.lua
+
+diff --git a/LOCAL-CHANGES.md b/LOCAL-CHANGES.md
+new file mode 100644
+index 0000000..cc0b12e
+--- /dev/null
++++ b/LOCAL-CHANGES.md
+@@ -0,0 +1,79 @@
++# Native selected-channel controls for Mixbus 12.1
++
++Upstream repository: `git://git.ardour.org/harrison/mixbus`
++Base tag: `mixbus+12.1`
++Base commit: `3c365afcc0b029b29ea57e111e6845a509d04fef`
++Local branch: `native-selected-channel-controls`
++
++This is a custom source build, not an official Harrison update. The change is compiled directly into Mixbus. No preload library, OSC bridge, timer, or separately enabled EQ Link application is involved. The usual `mixbus12.desktop` entry is overridden per user to launch this build. The vendor installation in `/opt/Mixbus-12.1.0` is retained as the original installation and supplies the licensed DSP and bundled content.
++
++## Behavior
++
++With two or more selected compatible tracks/channels, editing a channelstrip parameter applies the same parameter value to the others. EQ, filters, dynamics, de-esser, denoiser, pan, trim, bus sends, and compatible plugin parameters are matched by meaning. Existing multi-control groups, notably relative fader moves, retain their normal behavior. Shift/group override edits the original strip alone. Master/monitor, unselected tracks, and automation-controlled parameters are excluded. Selection by itself never copies settings. The existing quick-group preference disables this feature.
++
++The source identifies channelstrip controls from their well-known role, matches built-in sends by bus slot, auxiliary sends by receiving bus, and user plugins by format/unique ID and occurrence. Plugins are never matched merely by chain index. Native plugin GUI parameter notifications are forwarded to compatible selected peers without writing back to the originating callback. Non-numeric plugin properties, application-wide actions and non-parameter routing menus are not generic channelstrip controls.
++
++The processor-list on/off LEDs also apply the clicked state to corresponding processors on selected channels. Built-in processors match by channelstrip role and occurrence; user inserts match by format, unique ID and occurrence. Automated/locked bypass controls are skipped. Shift-click changes the clicked processor alone. The existing Ctrl+Shift whole-chain command retains its original behavior.
++
++## Build and installation
++
++Private build-only Boost headers: `~/.cache/mixbus-build-deps/usr/include`. No system packages were installed.
++
++```
++./waf configure --optimize --cxx17 --program-name=Mixbus --with-backends=alsa,jack,pulseaudio,dummy --prefix=/home/phil/.local/opt/mixbus-native --boost-include=/home/phil/.cache/mixbus-build-deps/usr/include --noconfirm
++./waf -j12
++./waf i18n_mo
++./waf install
++```
++
++The unchanged licensed Harrison LADSPA DSP was copied from the vendor installation to the native build's `lib/ardour12/ladspa`. The Harrison VAMP module was also copied unchanged. The launcher retains access to the vendor LV2 plugins, sound content and video helper.
++
++## Verification
++
++The full application compiled with GCC 16 and C++17. `tests/selected-controls/integration.lua` passed 75 controls / 375 synchronous updates, unrelated-track isolation, different plugin positions, repeated plugin occurrences, quick-group preference, NoGroup override, target automation, deselection and clean teardown. Tests used a separate configuration and Dummy backend.
++
++The actual GUI was then run on a private Xvfb display with a temporary session. A mouse drag changed Lo Gain from 0.5 to 0.5999999046325684 on both selected tracks while leaving the third unchanged; EQ enable followed on the same pair. A compressor ratio drag and gate-enable click also followed on the selected pair only. The GUI exited cleanly with code 0. `tests/selected-controls/gui-result.json` records the EQ drag state comparison.
++
++## Installed entry points
++
++- Standard launcher: `~/.local/bin/mixbus12`
++- Standard desktop entry: `~/.local/share/applications/mixbus12.desktop`
++- Native application: `~/.local/opt/mixbus-native/lib/ardour12/ardour-12.1.0`
++
++The former EQ Link launcher, preload module and prototype project were removed after the integrated build passed verification. To revert to the vendor app, remove the per-user desktop override and launcher; the original `/usr/share/applications/mixbus12.desktop` and `/opt/Mixbus-12.1.0` remain available.
++
++Processor-list LED verification: actual GUI clicks switched Gate, 32C EQ and Comp off and on on the selected pair only. Shift-click changed only the clicked track. Saved session parameter states were checked after each step; `tests/selected-controls/gui-led-result.json` records these results.
++
++The Fader processor LED also links selected routes by their exact main Amp, independently of plugin matching. GUI verification passed off/on on both selected tracks, unselected-track isolation, unchanged trim and Shift-click override. States are recorded in `tests/selected-controls/gui-fader-result.json`.
++
++## Scope and macOS transfer
++
++This branch contains functional selected-channel control changes and tests only. No custom theme, colors, fonts, user configuration, licenses, proprietary DSP binaries or compiled application binaries are included.
++
++A format-patch export of the feature commit can be applied to the exact Mixbus source base with `git am /path/to/mixbus-selected-controls.patch`. Start from tag `mixbus+12.1` / commit `3c365afcc0b029b29ea57e111e6845a509d04fef`. Other upstream revisions may require conflict resolution and retesting.
++
++The modified code has only been built and tested on Linux. It is not a ready-to-install macOS app. macOS requires its own build and packaging, the matching Apple Silicon or Intel architecture, CoreAudio, platform build dependencies and the appropriate licensed Harrison macOS DSP. The source tree includes `tools/osx_packaging/osx_build`; Linux build flags, paths and DSP binaries above must not be reused as a Mac installer. Native plugin windows, keyboard modifiers and selected-control behavior still require verification on macOS.
++
++For Harrison review, submit the patch and explain the requested behavior, matching rules, quick-group/Shift overrides and Linux test results. Harrison must review and decide whether to include it; no upstream submission or acceptance is implied by this local branch.
++
++Custom LV2 UI fix: `LV2PluginUI::write_from_ui` previously forced NoGroup for scalar port edits. Mixbus now uses UseGroup unless Shift is held. Verified with an actual XT-GV GVerb+ custom UI drag: mix changed from 0.5 to 0.60500001907348633 on both selected tracks and remained 0.5 on the unselected track. ACE Reverb parameter tests were added. VST/VST3 custom UIs are not covered by this LV2-specific verification.
++
++## Selected-channel plugin insertion and deletion
++
++Plugin insertion through the chooser and plugin/favorite drag-and-drop creates an independent instance on every selected compatible peer route. Each copy gets fresh processor, automation and control IDs and configures its own IO. Matching insertion anchors use the main fader or processor identity/occurrence; if no counterpart anchor exists, the plugin is appended. Sidechain port names and custom pin maps are not cloned. Incompatible peers are reported in a dialog rather than silently ignored. This does not turn arbitrary Lua/API insertion or moving existing processors between channels into a multi-route operation.
++
++Hover a plugin entry in the processor list and press Delete or Backspace to remove it and the matching occurrence on selected peer routes. Built-in channelstrip processors, faders and sends are protected from hover deletion. Window-level key dispatch handles this before normal accelerators; plugin windows and text controls outside the processor list retain their normal keyboard handling. Shift overrides linking; the quick-group preference still applies. All matching deletion targets are captured before removing any instance so occurrence indices cannot shift during a multi-plugin removal.
++
++Actual GUI verification passed chooser insertion of ACE Delay on the selected pair with distinct processor IDs, hover deletion of ACE Reverb on the pair while preserving the third track's instance, Shift+Delete isolation, and deletion of the second reverb occurrence across different chain positions while preserving all first occurrences. See `tests/selected-controls/gui-plugin-chain-result.json`.
++
++Drum Character custom-UI verification also passed graph-point dragging and a Tom Control preset click on selected identical mono instances, preserving the unselected instance; see `gui-drum-character-result.json`. The reported failure in the user's own setup has not been reproduced by these tests. Different plugin formats or mono/stereo identities are not treated as identical plugins.
++
++## Selection retention, batch windows and localization
++
++Mixer strip release handling now recognizes events originating inside the processor list. Clicking/opening processors on an already-selected strip preserves an existing multi-route selection; clicking strip names and adding previously unselected strips retains the existing selection rules. This prevents the first click of an add-plugin double-click from collapsing the selection.
++
++Plugin chooser batches are inserted completely before their editors open. When automatic opening is enabled, every newly inserted instance, including selected peer copies, opens with its native editor when available and a generic fallback otherwise. Windows receive a small cascading offset. The existing `one-plugin-window-only` preference limits a batch to the first editable instance. It is exposed as a standard checkbox immediately after New Plugin in the processor context menu, sharing the same setting as Preferences > Plugins > GUI. No separate preference or conflicting translation was introduced. The menu action reuses the already-translated string `Show only one plugin window at a time` (the existing French translation was verified). The choice applies to subsequent openings and persists in the normal UI configuration.
++
++Compile translation catalogs with `./waf i18n_mo` before install; NLS-enabled compilation alone does not generate the `.mo` files. The installed native build now includes those catalogs. GUI verification ran with `LANGUAGE=fr` in a private profile and confirmed that the checkbox fits the existing menu styling and is localized.
++
++`tests/selected-controls/gui-plugin-window-result.json` records retained selection, two plugins inserted on two selected routes only, one visible instance window in single-window mode, four visible new windows in all-window mode, and preference persistence after a clean exit. Documentation screenshots in the companion GitHub patch repository illustrate the actual private GUI test session. Plugin windows were manually arranged for screenshot readability; their runtime default is a small cascade.
+diff --git a/gtk2_ardour/ardour.menus.in b/gtk2_ardour/ardour.menus.in
+index 9993035..d1cb273 100644
+--- a/gtk2_ardour/ardour.menus.in
++++ b/gtk2_ardour/ardour.menus.in
+@@ -869,6 +869,9 @@
+     <menuitem action='send_options'/>
+     <separator/>
+     <menuitem action='newplugin'/>
++#ifdef MIXBUS
++    <menuitem action='one-plugin-window-only'/>
++#endif
+     <menuitem action='newinsert'/>
+     <menuitem action='newsend'/>
+     <menuitem action='newaux'/>
+diff --git a/gtk2_ardour/ardour_ui_keys.cc b/gtk2_ardour/ardour_ui_keys.cc
+index e63b548..0ea6bec 100644
+--- a/gtk2_ardour/ardour_ui_keys.cc
++++ b/gtk2_ardour/ardour_ui_keys.cc
+@@ -37,6 +37,7 @@
+ #endif
+ 
+ #include "ardour_ui.h"
++#include "processor_box.h"
+ #include "debug.h"
+ #include "keyboard.h"
+ #include "public_editor.h"
+@@ -74,6 +75,10 @@ ARDOUR_UI::key_event_handler (GdkEventKey* ev, Gtk::Window* event_window)
+ 		return false;
+ 	}
+ 
++#ifdef MIXBUS
++	if (!loading_session() && ProcessorBox::handle_hover_delete (event_window, ev)) return true;
++#endif
++
+ 	if (event_window == &_main_window) {
+ 
+ 		window = event_window;
+diff --git a/gtk2_ardour/automation_controller.cc b/gtk2_ardour/automation_controller.cc
+index 4d0cf4c..ccae82c 100644
+--- a/gtk2_ardour/automation_controller.cc
++++ b/gtk2_ardour/automation_controller.cc
+@@ -39,6 +39,7 @@
+ #include "automation_controller.h"
+ #include "context_menu_helper.h"
+ #include "gui_thread.h"
++#include "keyboard.h"
+ #include "note_select_dialog.h"
+ #include "timers.h"
+ 
+@@ -50,6 +51,17 @@ using namespace ArdourWidgets;
+ 
+ using PBD::Controllable;
+ 
++static PBD::Controllable::GroupControlDisposition
++selected_edit_disposition ()
++{
++#ifdef MIXBUS
++	return (Gtkmm2ext::Keyboard::the_keyboard().key_is_down(GDK_Shift_L) || Gtkmm2ext::Keyboard::the_keyboard().key_is_down(GDK_Shift_R))
++		? PBD::Controllable::NoGroup : PBD::Controllable::UseGroup;
++#else
++	return PBD::Controllable::NoGroup;
++#endif
++}
++
+ AutomationBarController::AutomationBarController (
+ 		std::shared_ptr<AutomationControl> ac,
+ 		Adjustment*                          adj)
+@@ -196,7 +208,7 @@ AutomationController::value_adjusted ()
+ 	if (!_ignore_change) {
+ 		const double new_val = _controllable->interface_to_internal(_adjustment->get_value(), true);
+ 		if (_controllable->get_double() != new_val) {
+-			_controllable->set_value (new_val, Controllable::NoGroup);
++			_controllable->set_value (new_val, selected_edit_disposition());
+ 		}
+ 	}
+ 
+@@ -273,7 +285,7 @@ AutomationController::run_note_select_dialog()
+ 		const double value = ((_controllable->desc().unit == ARDOUR::ParameterDescriptor::HZ)
+ 		                      ? midi_note_to_hz(dialog->note_number())
+ 		                      : dialog->note_number());
+-		_controllable->set_value(clamp(value, desc.lower, desc.upper), Controllable::NoGroup);
++		_controllable->set_value(clamp(value, desc.lower, desc.upper), selected_edit_disposition());
+ 	}
+ 	delete dialog;
+ }
+@@ -288,7 +300,7 @@ AutomationController::set_freq_beats(double beats)
+ 	const double                       bpm     = tempo.note_types_per_minute();
+ 	const double                       bps     = bpm / 60.0;
+ 	const double                       freq    = bps / beats;
+-	_controllable->set_value(clamp(freq, desc.lower, desc.upper), Controllable::NoGroup);
++	_controllable->set_value(clamp(freq, desc.lower, desc.upper), selected_edit_disposition());
+ }
+ 
+ void
+@@ -296,7 +308,7 @@ AutomationController::set_ratio(double ratio)
+ {
+ 	const ARDOUR::ParameterDescriptor& desc  = _controllable->desc();
+ 	const double                       value = _controllable->get_value() * ratio;
+-	_controllable->set_value(clamp(value, desc.lower, desc.upper), Controllable::NoGroup);
++	_controllable->set_value(clamp(value, desc.lower, desc.upper), selected_edit_disposition());
+ }
+ 
+ bool
+diff --git a/gtk2_ardour/generic_pluginui.cc b/gtk2_ardour/generic_pluginui.cc
+index 29c21b3..b6a6fe0 100644
+--- a/gtk2_ardour/generic_pluginui.cc
++++ b/gtk2_ardour/generic_pluginui.cc
+@@ -55,6 +55,7 @@
+ #include "ardour/value_as_string.h"
+ 
+ #include "gtkmm2ext/menu_elems.h"
++#include "gtkmm2ext/keyboard.h"
+ #include "gtkmm2ext/utils.h"
+ #include "gtkmm2ext/doi.h"
+ 
+@@ -1328,7 +1329,12 @@ void
+ GenericPluginUI::control_combo_changed (ControlUI* cui, float value)
+ {
+ 	if (!cui->ignore_change) {
++#ifdef MIXBUS
++		bool const single = Keyboard::the_keyboard().key_is_down(GDK_Shift_L) || Keyboard::the_keyboard().key_is_down(GDK_Shift_R);
++		cui->combo->get_controllable ()->set_value (value, single ? Controllable::NoGroup : Controllable::UseGroup);
++#else
+ 		cui->combo->get_controllable ()->set_value (value, Controllable::NoGroup);
++#endif
+ 	}
+ }
+ 
+diff --git a/gtk2_ardour/lv2_plugin_ui.cc b/gtk2_ardour/lv2_plugin_ui.cc
+index 0841313..06d2e15 100644
+--- a/gtk2_ardour/lv2_plugin_ui.cc
++++ b/gtk2_ardour/lv2_plugin_ui.cc
+@@ -31,6 +31,7 @@
+ #include "pbd/error.h"
+ 
+ #include "gui_thread.h"
++#include "keyboard.h"
+ #include "lv2_plugin_ui.h"
+ #include "timers.h"
+ 
+@@ -72,7 +73,13 @@ LV2PluginUI::write_from_ui(void*       controller,
+ 
+ 		if (ac) {
+ 			me->_updates.insert (port_index);
+-			ac->set_value(*(const float*)buffer, Controllable::NoGroup);
++#ifdef MIXBUS
++			bool const single = Gtkmm2ext::Keyboard::the_keyboard().key_is_down(GDK_Shift_L)
++			    || Gtkmm2ext::Keyboard::the_keyboard().key_is_down(GDK_Shift_R);
++			ac->set_value (*(const float*)buffer, single ? Controllable::NoGroup : Controllable::UseGroup);
++#else
++			ac->set_value (*(const float*)buffer, Controllable::NoGroup);
++#endif
+ 		}
+ 	} else if (format == URIMap::instance().urids.atom_eventTransfer) {
+ 
+diff --git a/gtk2_ardour/mixbus_widgets.mb.cc b/gtk2_ardour/mixbus_widgets.mb.cc
+index 28c8245..55dd491 100644
+--- a/gtk2_ardour/mixbus_widgets.mb.cc
++++ b/gtk2_ardour/mixbus_widgets.mb.cc
+@@ -766,7 +766,7 @@ MixbusKnob::start_touch ( std::shared_ptr<PBD::Controllable> ctrl )
+ 		ARDOUR::AutomationType atype = (ARDOUR::AutomationType) ac->parameter().type();
+ 
+ 		_touch_control_group.reset ( (atype == GainAutomation || atype == TrimAutomation )  ? new GainControlGroup (atype) : new ControlGroup (ac->parameter()));
+-		_touch_control_group->set_mode (ControlGroup::Relative);
++		_touch_control_group->set_mode ((atype == GainAutomation || atype == TrimAutomation) ? ControlGroup::Relative : ControlGroup::Mode(0));
+ 		_touch_control_group->fill_from_stripable_list (sl, ac->parameter());
+ 
+ 		ac->start_touch (timepos_t (ac->session().transport_sample()));
+@@ -5260,10 +5260,12 @@ void
+ MixbusToggle::toggle_state ()
+ {
+ 	if (_ctrlable) {
++		bool const override_group = Keyboard::the_keyboard().key_is_down(GDK_Shift_L) || Keyboard::the_keyboard().key_is_down(GDK_Shift_R);
++		Controllable::GroupControlDisposition const disposition = override_group ? Controllable::NoGroup : Controllable::UseGroup;
+ 		if (_ctrlable->get_value() == _tog_value) {
+-			_ctrlable->set_value(0, Controllable::NoGroup);
++			_ctrlable->set_value(0, disposition);
+ 		} else {
+-			_ctrlable->set_value(_tog_value, Controllable::NoGroup);
++			_ctrlable->set_value(_tog_value, disposition);
+ 		}
+ 	}
+ }
+diff --git a/gtk2_ardour/mixer_ui.cc b/gtk2_ardour/mixer_ui.cc
+index 77c9091..0f486db 100644
+--- a/gtk2_ardour/mixer_ui.cc
++++ b/gtk2_ardour/mixer_ui.cc
+@@ -1689,6 +1689,17 @@ Mixer_UI::strip_button_release_event (GdkEventButton *ev, MixerStrip *strip)
+ 	PBD::Unwinder<bool> uw (_strip_selection_change_without_scroll, true);
+ 	move_stripable_into_view (strip->stripable());
+ 
++#ifdef MIXBUS
++	// Processor clicks edit/open the chain; they must not collapse an existing
++	// multi-channel selection on the first release of a double-click.
++	if (ev->button == 1 && _selection.selected(strip) && _selection.axes.size() > 1) {
++		for (GtkWidget* w = gtk_get_event_widget(reinterpret_cast<GdkEvent*>(ev));
++		     w && w != GTK_WIDGET(strip->gobj()); w = gtk_widget_get_parent(w)) {
++			if (g_object_get_data(G_OBJECT(w), "processorbox")) return true;
++		}
++	}
++#endif
++
+ 	if (ev->button == 1) {
+ 		if (_selection.selected (strip)) {
+ 			/* primary-click: toggle selection state of strip */
+diff --git a/gtk2_ardour/processor_box.cc b/gtk2_ardour/processor_box.cc
+index f21083b..da51833 100644
+--- a/gtk2_ardour/processor_box.cc
++++ b/gtk2_ardour/processor_box.cc
+@@ -71,6 +71,8 @@
+ #include "ardour/profile.h"
+ #include "ardour/return.h"
+ #include "ardour/route.h"
++#include "ardour/selection.h"
++#include "ardour/rc_configuration.h"
+ #include "ardour/send.h"
+ #include "ardour/session.h"
+ #include "ardour/surround_send.h"
+@@ -594,11 +596,11 @@ ProcessorEntry::led_clicked(GdkEventButton *ev)
+ 				_parent->all_visible_processors_active(false);
+ 
+ 				if (_position == Fader) {
+-					_processor->enable (false);
++					_parent->set_processor_enabled (_processor, false, !(ev->state & GDK_SHIFT_MASK));
+ 				}
+ 			}
+ 			else {
+-				_processor->enable (false);
++				_parent->set_processor_enabled (_processor, false, !(ev->state & GDK_SHIFT_MASK));
+ 			}
+ 
+ 		} else {
+@@ -606,11 +608,11 @@ ProcessorEntry::led_clicked(GdkEventButton *ev)
+ 				_parent->all_visible_processors_active(true);
+ 
+ 				if (_position == Fader) {
+-					_processor->enable (true);
++					_parent->set_processor_enabled (_processor, true, !(ev->state & GDK_SHIFT_MASK));
+ 				}
+ 			}
+ 			else {
+-				_processor->enable (true);
++				_parent->set_processor_enabled (_processor, true, !(ev->state & GDK_SHIFT_MASK));
+ 			}
+ 		}
+ 	}
+@@ -2314,6 +2316,14 @@ the I/O configuration of the plugins could\n\
+ not match the configuration of this track.");
+ 		MessageDialog am (msg);
+ 		am.run ();
++	} else {
++		ProcSelection added;
++		for (auto const& processor : pl) {
++			added.push_back(processor);
++			auto peers = replicate_plugin_insertion (processor, p);
++			added.insert(added.end(), peers.begin(), peers.end());
++		}
++		open_inserted_plugins(added);
+ 	}
+ }
+ 
+@@ -2583,6 +2593,11 @@ ProcessorBox::show_processor_menu (int arg)
+ 		processor_menu->signal_unmap().connect (sigc::mem_fun (*this, &ProcessorBox::processor_menu_unmapped));
+ 	}
+ 
++#ifdef MIXBUS
++	ActionManager::get_toggle_action (X_("ProcessorMenu"), "one-plugin-window-only")->set_active (
++		UIConfiguration::instance().get_one_plugin_window_only());
++#endif
++
+ 	/* Sort out the plugin submenu */
+ 
+ 	Gtk::MenuItem* plugin_menu_item = dynamic_cast<Gtk::MenuItem*>(ActionManager::get_widget("/ProcessorMenu/newplugin"));
+@@ -2762,6 +2777,164 @@ ProcessorBox::show_processor_menu (int arg)
+ 	_placement = processor_display.add_placeholder (y);
+ }
+ 
++namespace {
++#ifdef MIXBUS
++std::shared_ptr<Processor>
++matching_processor (Route const& source_route, Route const& target_route, std::shared_ptr<Processor> source)
++{
++	if (source == source_route.amp()) return target_route.amp();
++	auto insert = std::dynamic_pointer_cast<PluginInsert> (source);
++	if (!insert || !insert->plugin()) return {};
++	auto matches = [&insert] (std::shared_ptr<Processor> p) {
++		auto other = std::dynamic_pointer_cast<PluginInsert> (p);
++		if (!other || !other->plugin() || other->channelstrip() != insert->channelstrip()) return false;
++		if (insert->channelstrip() != Processor::None) return true;
++		return other->type() == insert->type() && other->plugin()->unique_id() == insert->plugin()->unique_id();
++	};
++	uint32_t occurrence = 0;
++	bool found = false;
++	for (uint32_t i = 0; auto p = source_route.nth_plugin(i); ++i) {
++		if (p == source) { found = true; break; }
++		if (matches(p)) ++occurrence;
++	}
++	if (!found) return {};
++	for (uint32_t i = 0; auto p = target_route.nth_plugin(i); ++i) {
++		if (matches(p) && occurrence-- == 0) return p;
++	}
++	return {};
++}
++#endif
++}
++
++std::vector<std::shared_ptr<Route>>
++ProcessorBox::selected_processor_peers () const
++{
++	std::vector<std::shared_ptr<Route>> routes;
++#ifdef MIXBUS
++	if (!_session || !_route || !_route->is_selected() || _route->is_master() || _route->is_monitor()
++	    || !Config->get_implicit_selection_op_groups()
++	    || Keyboard::the_keyboard().key_is_down(GDK_Shift_L)
++	    || Keyboard::the_keyboard().key_is_down(GDK_Shift_R)) return routes;
++	CoreSelection::StripableAutomationControls selected;
++	_session->selection().get_stripables (selected);
++	for (auto const& item : selected) {
++		auto route = std::dynamic_pointer_cast<Route> (item.stripable);
++		if (route && route != _route && !route->is_master() && !route->is_monitor()) routes.push_back(route);
++	}
++#endif
++	return routes;
++}
++
++ProcessorBox::ProcSelection
++ProcessorBox::replicate_plugin_insertion (std::shared_ptr<Processor> processor, std::shared_ptr<Processor> before)
++{
++	ProcSelection added;
++#ifdef MIXBUS
++	auto insert = std::dynamic_pointer_cast<PluginInsert> (processor);
++	if (!insert || insert->is_channelstrip()) return added;
++	auto peers = selected_processor_peers();
++	if (peers.empty()) return added;
++	std::unique_ptr<XMLNode> saved (&insert->get_state());
++	std::string failed;
++	for (auto const& route : peers) {
++		auto copy = std::make_shared<PluginInsert> (*_session, *route);
++		PBD::ID id = copy->id();
++		XMLNode state (*saved);
++		// Let each route configure its own IO; do not copy sidechain port names.
++		state.remove_nodes_and_delete ("Processor");
++		uint32_t count = 0;
++		state.get_property ("count", count);
++		state.remove_property ("count");
++		state.remove_property ("custom");
++		for (auto name : {"ConfiguredInput", "CustomSinks", "ConfiguredOutput", "PresetOutput", "ThruMap"}) state.remove_nodes_and_delete(name);
++		for (uint32_t i = 0; i < count; ++i) {
++			state.remove_nodes_and_delete (string_compose("InputMap-%1", i));
++			state.remove_nodes_and_delete (string_compose("OutputMap-%1", i));
++		}
++		int rv;
++		{
++			PBD::Stateful::ForceIDRegeneration force_ids;
++			rv = copy->set_state (state, Stateful::current_state_version);
++		}
++		copy->update_id (id);
++		if (!rv) {
++			auto anchor = matching_processor (*_route, *route, before);
++			rv = route->add_processor (copy, anchor, nullptr, Config->get_new_plugins_active());
++		}
++		if (rv) failed += (failed.empty() ? "" : ", ") + route->name();
++		else added.push_back(copy);
++	}
++	if (!failed.empty()) {
++		MessageDialog am (string_compose (_("Could not insert the plugin on these selected channels: %1"), failed));
++		am.run();
++	}
++#endif
++	return added;
++}
++
++void
++ProcessorBox::open_inserted_plugins (ProcSelection const& added)
++{
++	if (!UIConfiguration::instance().get_open_gui_after_adding_plugin()
++	    || !ARDOUR_UI_UTILS::engine_is_running()) return;
++#ifdef MIXBUS
++	bool const single_window = UIConfiguration::instance().get_one_plugin_window_only();
++	unsigned opened = 0;
++	for (auto const& processor : added) {
++		auto insert = std::dynamic_pointer_cast<PluginInsert>(processor);
++		if (!insert || insert->is_channelstrip()
++		    || (insert->what_can_be_automated().empty() && !insert->plugin()->has_editor())) continue;
++		auto proxy = processor->window_proxy();
++		if (!proxy) continue;
++		proxy->set_custom_ui_mode(true);
++		proxy->show_the_right_window(true);
++		if (auto window = proxy->get(false)) {
++			int base_x = 0, base_y = 0;
++			if (auto top = dynamic_cast<Gtk::Window*>(get_toplevel())) top->get_position(base_x, base_y);
++			window->move(base_x + 40 + (opened % 8) * 32, base_y + 40 + (opened % 8) * 32);
++			++opened;
++		}
++		if (single_window && opened) break;
++	}
++#else
++	if (added.size() == 1) {
++		auto insert = std::dynamic_pointer_cast<PluginInsert>(added.front());
++		if (insert && !insert->what_can_be_automated().empty()
++		    && !(insert->plugin()->has_inline_display() && UIConfiguration::instance().get_prefer_inline_over_gui())) edit_processor(insert);
++	}
++#endif
++}
++
++bool
++ProcessorBox::handle_hover_delete (Gtk::Window* window, GdkEventKey* ev)
++{
++	// Window accelerators run before widget key handlers. Handle hover Delete
++	// here so it also works when no processor has been clicked/selected.
++	if (!_current_processor_box || _current_processor_box->get_toplevel() != window) return false;
++	return _current_processor_box->processor_key_press(ev);
++}
++
++bool
++ProcessorBox::processor_key_press (GdkEventKey* ev)
++{
++#ifdef MIXBUS
++	if ((ev->keyval == GDK_Delete || ev->keyval == GDK_BackSpace)
++	    && !(ev->state & (GDK_CONTROL_MASK | GDK_MOD1_MASK | GDK_META_MASK | GDK_SUPER_MASK))) {
++		int x, y;
++		processor_display.get_pointer (x, y);
++		if (x < 0 || y < 0 || x >= processor_display.get_allocation().get_width()
++		    || y >= processor_display.get_allocation().get_height()) return false;
++		auto child = processor_display.get_child_at_position(y).first;
++		if (!child) return true;
++		auto insert = std::dynamic_pointer_cast<PluginInsert> (child->processor());
++		// Hover deletion never removes built-in strip processors, faders or sends.
++		if (insert && !insert->is_channelstrip()) delete_processors (ProcSelection {insert});
++		return true;
++	}
++#endif
++	return false;
++}
++
+ bool
+ ProcessorBox::enter_notify (GdkEventCrossing*)
+ {
+@@ -2871,7 +3044,7 @@ ProcessorBox::processor_operation (ProcessorOperation op)
+ 				continue;
+ 			}
+ #endif
+-			(*i)->enable (!(*i)->enabled ());
++			set_processor_enabled (*i, !(*i)->enabled ());
+ 		}
+ 		break;
+ 
+@@ -2986,7 +3159,7 @@ ProcessorBox::processor_button_release_event (GdkEventButton *ev, ProcessorEntry
+ 		}
+ #endif
+ 
+-		processor->enable (!processor->enabled ());
++		set_processor_enabled (processor, !processor->enabled (), !(ev->state & GDK_SHIFT_MASK));
+ 	}
+ 
+ 	return false;
+@@ -3022,13 +3195,20 @@ ProcessorBox::choose_plugin ()
+ bool
+ ProcessorBox::use_plugins (const SelectedPlugins& plugins)
+ {
++	ProcSelection added;
+ 	for (SelectedPlugins::const_iterator p = plugins.begin(); p != plugins.end(); ++p) {
+ 
+ 		std::shared_ptr<Processor> processor (new PluginInsert (*_session, *_route, *p));
+ 
+ 		Route::ProcessorStreams err_streams;
+ 
++		auto before = _route->before_processor_for_index (_placement);
+ 		int rv =_route->add_processor_by_index (processor, _placement, &err_streams, Config->get_new_plugins_active ());
++		if (!rv) {
++			added.push_back(processor);
++			auto peers = replicate_plugin_insertion (processor, before);
++			added.insert(added.end(), peers.begin(), peers.end());
++		}
+ 
+ 		if (rv == -1) {
+ 			MessageDialog am (_("Cannot add plugin while recording"));
+@@ -3039,23 +3219,8 @@ ProcessorBox::use_plugins (const SelectedPlugins& plugins)
+ 			weird_plugin_dialog (**p, err_streams);
+ 			// XXX SHAREDPTR delete plugin here .. do we even need to care?
+ 			return true;
+-		} else if (plugins.size() == 1 && UIConfiguration::instance().get_open_gui_after_adding_plugin()) {
+-			if (processor->what_can_be_automated ().size () == 0) {
+-				; /* plugin without controls, don't show ui */
+-			}
+-			else if (std::dynamic_pointer_cast<PluginInsert>(processor)->plugin()->has_inline_display() && UIConfiguration::instance().get_prefer_inline_over_gui()) {
+-				; /* only show inline display */
+-			}
+-			else if (processor_can_be_edited (processor)) {
+-				if (!ARDOUR_UI_UTILS::engine_is_running()) {
+-					return true;
+-				} else if ((*p)->has_editor ()) {
+-					edit_processor (processor);
+-				} else if (std::dynamic_pointer_cast<PluginInsert>(processor)->plugin()->parameter_count() > 0) {
+-					generic_edit_processor (processor);
+-				}
+-			}
+ 		}
++
+ 		/* add next processor below the currently added.
+ 		 * Note: placement < 0: add the bottom */
+ 		if (_placement >= 0) {
+@@ -3063,6 +3228,7 @@ ProcessorBox::use_plugins (const SelectedPlugins& plugins)
+ 		}
+ 	}
+ 
++	open_inserted_plugins(added);
+ 	return false;
+ }
+ 
+@@ -3807,6 +3973,25 @@ ProcessorBox::delete_processors (const ProcSelection& targets)
+ 		return;
+ 	}
+ 
++#ifdef MIXBUS
++	std::map<std::shared_ptr<Route>, ProcSelection> peer_targets;
++	for (auto const& route : selected_processor_peers()) {
++		for (auto const& source : targets) {
++			auto insert = std::dynamic_pointer_cast<PluginInsert> (source);
++			if (!insert || insert->is_channelstrip()) continue;
++			auto target = matching_processor (*_route, *route, source);
++			if (target) peer_targets[route].push_back(target);
++		}
++	}
++	for (auto const& pair : peer_targets) {
++		for (auto const& target : pair.second) {
++			Window* w = get_processor_ui (target);
++			if (w) w->hide();
++			pair.first->remove_processor(target);
++		}
++	}
++#endif
++
+ 	no_processor_redisplay = true;
+ 
+ 	for (ProcSelection::const_iterator i = targets.begin(); i != targets.end(); ++i) {
+@@ -3848,19 +4033,8 @@ ProcessorBox::delete_dragged_processors (const list<std::shared_ptr<Processor> >
+ gint
+ ProcessorBox::idle_delete_processor (std::weak_ptr<Processor> weak_processor)
+ {
+-	std::shared_ptr<Processor> processor (weak_processor.lock());
+-
+-	if (!processor) {
+-		return false;
+-	}
+-
+-	/* NOT copied to _mixer.selection() */
+-
+-	no_processor_redisplay = true;
+-	_route->remove_processor (processor);
+-	no_processor_redisplay = false;
+-	redisplay_processors ();
+-
++	auto processor = weak_processor.lock();
++	if (processor) delete_processors (ProcSelection {processor});
+ 	return false;
+ }
+ 
+@@ -4135,6 +4309,63 @@ ProcessorBox::for_selected_processors (void (ProcessorBox::*method)(std::shared_
+ 	}
+ }
+ 
++void
++ProcessorBox::set_processor_enabled (std::shared_ptr<Processor> processor, bool state, bool link_selection)
++{
++#ifdef MIXBUS
++	// The fader is the route's Amp, not a PluginInsert. Identify it by owner
++	// so trim and other gain stages are never enabled in its place.
++	if (link_selection && _session && _route && processor == _route->amp()
++	    && _route->is_selected() && !_route->is_master() && !_route->is_monitor()
++	    && Config->get_implicit_selection_op_groups()) {
++		CoreSelection::StripableAutomationControls selected;
++		_session->selection().get_stripables (selected);
++		for (auto const& item : selected) {
++			auto route = std::dynamic_pointer_cast<Route> (item.stripable);
++			if (!route || route == _route || route->is_master() || route->is_monitor()) continue;
++			if (route->amp() && route->amp()->bypassable()) route->amp()->enable (state);
++		}
++	}
++	// LEDs use Processor::enable rather than the knob's AutomationControl path.
++	// Match channelstrip roles or plugin identity/occurrence, never chain slots.
++	std::shared_ptr<PluginInsert> source = std::dynamic_pointer_cast<PluginInsert> (processor);
++	if (link_selection && source && source->bypassable() && _session && _route
++	    && _route->is_selected() && !_route->is_master() && !_route->is_monitor()
++	    && Config->get_implicit_selection_op_groups()) {
++		uint32_t occurrence = 0;
++		auto matches = [&source] (std::shared_ptr<PluginInsert> const& other) {
++			if (!other || other->channelstrip() != source->channelstrip()) return false;
++			if (source->channelstrip() != Processor::None) return true;
++			return source->plugin() && other->plugin()
++			    && source->type() == other->type()
++			    && source->plugin()->unique_id() == other->plugin()->unique_id();
++		};
++		bool found = false;
++		for (uint32_t i = 0; auto p = _route->nth_plugin(i); ++i) {
++			if (p == processor) { found = true; break; }
++			if (matches (std::dynamic_pointer_cast<PluginInsert> (p))) ++occurrence;
++		}
++		if (found) {
++			CoreSelection::StripableAutomationControls selected;
++			_session->selection().get_stripables (selected);
++			for (auto const& item : selected) {
++				auto route = std::dynamic_pointer_cast<Route> (item.stripable);
++				if (!route || route == _route || route->is_master() || route->is_monitor()) continue;
++				uint32_t remaining = occurrence;
++				for (uint32_t i = 0; auto p = route->nth_plugin(i); ++i) {
++					auto target = std::dynamic_pointer_cast<PluginInsert> (p);
++					if (!matches (target)) continue;
++					if (remaining-- != 0) continue;
++					if (target->bypassable()) target->enable (state);
++					break;
++				}
++			}
++		}
++	}
++#endif
++	processor->enable (state);
++}
++
+ void
+ ProcessorBox::all_visible_processors_active (bool state)
+ {
+@@ -4476,6 +4707,13 @@ ProcessorBox::register_actions ()
+ 	ActionManager::register_action (processor_box_actions, X_("deselectall"), _("Deselect All"),
+ 			sigc::ptr_fun (ProcessorBox::rb_deselect_all));
+ 
++#ifdef MIXBUS
++	auto single_window = ActionManager::register_toggle_action (processor_box_actions,
++		X_("one-plugin-window-only"), _("Show only one plugin window at a time"),
++		sigc::ptr_fun (ProcessorBox::rb_single_plugin_window));
++	single_window->set_active (UIConfiguration::instance().get_one_plugin_window_only());
++#endif
++
+ 	/* activation etc. */
+ 
+ 	ActionManager::register_action (processor_box_actions, X_("activate_all"), _("Activate All"),
+@@ -4509,6 +4747,13 @@ ProcessorBox::register_actions ()
+ 
+ }
+ 
++void
++ProcessorBox::rb_single_plugin_window ()
++{
++	UIConfiguration::instance().set_one_plugin_window_only (
++		ActionManager::get_toggle_action (X_("ProcessorMenu"), "one-plugin-window-only")->get_active());
++}
++
+ void
+ ProcessorBox::rb_edit_generic ()
+ {
+diff --git a/gtk2_ardour/processor_box.h b/gtk2_ardour/processor_box.h
+index 14cf8f9..2899196 100644
+--- a/gtk2_ardour/processor_box.h
++++ b/gtk2_ardour/processor_box.h
+@@ -438,6 +438,7 @@ public:
+ 	void set_width (Width);
+ 
+ 	bool processor_operation (ProcessorOperation);
++	static bool handle_hover_delete (Gtk::Window*, GdkEventKey*);
+ 
+ 	void select_all_processors ();
+ 	void deselect_all_processors ();
+@@ -446,6 +447,7 @@ public:
+ 	void select_all_sends ();
+ 
+ 	void all_visible_processors_active(bool state);
++	void set_processor_enabled (std::shared_ptr<ARDOUR::Processor>, bool state, bool link_selection = true);
+ 	void setup_routing_feeds ();
+ 
+ 	void hide_things ();
+@@ -547,6 +549,10 @@ private:
+ 	void choose_insert ();
+ 	void choose_plugin ();
+ 	bool use_plugins (const SelectedPlugins&);
++	std::vector<std::shared_ptr<ARDOUR::Route>> selected_processor_peers () const;
++	ProcSelection replicate_plugin_insertion (std::shared_ptr<ARDOUR::Processor>, std::shared_ptr<ARDOUR::Processor> before);
++	void open_inserted_plugins (ProcSelection const&);
++	bool processor_key_press (GdkEventKey*);
+ 
+ 	bool no_processor_redisplay;
+ 
+@@ -634,6 +640,7 @@ private:
+ 	static void rb_toggle_custom_loudness_pos ();
+ 	static void rb_edit ();
+ 	static void rb_edit_generic ();
++	static void rb_single_plugin_window ();
+ 
+ 	void route_property_changed (const PBD::PropertyChange&);
+ 	std::string generate_processor_title (std::shared_ptr<ARDOUR::PluginInsert> pi);
+diff --git a/libs/ardour/ardour/route.h b/libs/ardour/ardour/route.h
+index cb19bcf..95d3bec 100644
+--- a/libs/ardour/ardour/route.h
++++ b/libs/ardour/ardour/route.h
+@@ -629,6 +629,10 @@ public:
+ 	std::string eq_band_name (uint32_t) const;
+ 
+ 	std::shared_ptr<AutomationControl> mapped_control (enum WellKnownCtrl, uint32_t band = 0) const;
++#ifdef MIXBUS
++	/** Matching control on this route, without creating controls or processors. */
++	std::shared_ptr<AutomationControl> selected_control_counterpart (Route const& source, std::shared_ptr<AutomationControl> const&) const;
++#endif
+ 	std::shared_ptr<ReadOnlyControl>   mapped_output (enum WellKnownData) const;
+ 
+ 	std::shared_ptr<AutomationControl> send_level_controllable (uint32_t n, bool locked = false) const;
+diff --git a/libs/ardour/automation_control.cc b/libs/ardour/automation_control.cc
+index a88e3ab..e6bf941 100644
+--- a/libs/ardour/automation_control.cc
++++ b/libs/ardour/automation_control.cc
+@@ -32,6 +32,8 @@
+ #include "ardour/event_type_map.h"
+ #include "ardour/session.h"
+ #include "ardour/selection.h"
++#include "ardour/route.h"
++#include "ardour/rc_configuration.h"
+ #include "ardour/value_as_string.h"
+ 
+ #include "pbd/i18n.h"
+@@ -125,6 +127,67 @@ AutomationControl::pre_realtime_queue_stuff (double val, PBD::Controllable::Grou
+ 	}
+ }
+ 
++#ifdef MIXBUS
++namespace {
++thread_local bool linking_selected_controls = false;
++
++bool link_selected_controls (Session& session, AutomationControl& source, double value, bool apply_source = true)
++{
++	if (linking_selected_controls || session.loading() || session.deletion_in_progress()
++	    || !Config->get_implicit_selection_op_groups() || AudioEngine::instance()->in_process_thread()
++	    || source.automation_state() != Off || session.selection().selected() < 2) {
++		return false;
++	}
++
++	CoreSelection::StripableAutomationControls selected;
++	session.selection().get_stripables(selected);
++	std::vector<std::shared_ptr<Route>> routes;
++	for (auto const& item : selected) {
++		std::shared_ptr<Route> route = std::dynamic_pointer_cast<Route>(item.stripable);
++		if (route && !route->is_master() && !route->is_monitor()) routes.push_back(route);
++	}
++	if (routes.size() < 2) return false;
++
++	std::shared_ptr<AutomationControl> control = std::dynamic_pointer_cast<AutomationControl>(source.shared_from_this());
++	std::shared_ptr<Route> owner;
++	for (auto const& route : routes) {
++		if (route->selected_control_counterpart(*route, control) == control) {
++			owner = route;
++			break;
++		}
++	}
++	if (!owner) return false;
++
++	AutomationControlList targets;
++	for (auto const& route : routes) {
++		if (route == owner) continue;
++		std::shared_ptr<AutomationControl> target = route->selected_control_counterpart(*owner, control);
++		if (target && target != control && target->writable() && target->automation_state() == Off
++		    && target->lower() == source.lower() && target->upper() == source.upper()
++		    && target->toggled() == source.toggled()) {
++			targets.push_back(target);
++		}
++	}
++	if (targets.empty()) return false;
++
++	PBD::Unwinder<bool> guard(linking_selected_controls, true);
++	// ForGroup bypasses other groups and is also carried into queued RT events.
++	if (apply_source) source.set_value(value, PBD::Controllable::ForGroup);
++	for (auto const& target : targets) target->set_value(value, PBD::Controllable::ForGroup);
++	return true;
++
++}
++}
++namespace ARDOUR {
++// Native plugin UIs notify the host after applying their parameter. Propagate
++// to peers without writing back into the originating plugin GUI callback.
++void link_selected_controls_from_plugin (AutomationControl& source, double value)
++{
++	link_selected_controls(const_cast<Session&>(source.session()), source, value, false);
++}
++}
++#endif
++
+ void
+ AutomationControl::set_value (double val, PBD::Controllable::GroupControlDisposition gcd)
+ {
+@@ -132,6 +195,15 @@ AutomationControl::set_value (double val, PBD::Controllable::GroupControlDisposi
+ 		return;
+ 	}
+ 
++#ifdef MIXBUS
++	// Keep established multi-control groups (notably relative fader moves) intact.
++	if (gcd == Controllable::UseGroup && !AudioEngine::instance()->in_process_thread()
++	    && (!_group || _group->controls().size() < 2)
++	    && link_selected_controls(_session, *this, val)) {
++		return;
++	}
++#endif
++
+ 	if (_list && !touching () && alist()->automation_state() == Latch && _session.transport_rolling ()) {
+ 		start_touch (timepos_t (_session.transport_sample ()));
+ 	}
+diff --git a/libs/ardour/plug_insert_base.cc b/libs/ardour/plug_insert_base.cc
+index 718d98e..964d4fa 100644
+--- a/libs/ardour/plug_insert_base.cc
++++ b/libs/ardour/plug_insert_base.cc
+@@ -49,6 +49,10 @@
+ 
+ #include "pbd/i18n.h"
+ 
++#ifdef MIXBUS
++namespace ARDOUR { void link_selected_controls_from_plugin (AutomationControl&, double); }
++#endif
++
+ using namespace PBD;
+ using namespace ARDOUR;
+ 
+@@ -344,6 +348,9 @@ void
+ PlugInsertBase::PluginControl::catch_up_with_external_value (double user_val)
+ {
+ 	AutomationControl::actually_set_value (user_val, Controllable::NoGroup);
++#ifdef MIXBUS
++	link_selected_controls_from_plugin (*this, user_val);
++#endif
+ }
+ 
+ XMLNode&
+diff --git a/libs/ardour/route.cc b/libs/ardour/route.cc
+index d3b9b40..15c7612 100644
+--- a/libs/ardour/route.cc
++++ b/libs/ardour/route.cc
+@@ -6681,6 +6681,94 @@ Route::get_control (const Evoral::Parameter& param)
+ 	return c;
+ }
+ 
++#ifdef MIXBUS
++std::shared_ptr<AutomationControl>
++Route::selected_control_counterpart (Route const& source, std::shared_ptr<AutomationControl> const& control) const
++{
++	if (!control || is_master() || is_monitor() || source.is_master() || source.is_monitor()) {
++		return std::shared_ptr<AutomationControl>();
++	}
++
++	// Channelstrip controls are identified semantically, not by plugin port number.
++	for (auto const& mapping : source._well_known_map) {
++		for (uint32_t band = 0; band < mapping.second.size(); ++band) {
++			if (mapping.second[band].lock() == control) {
++				std::shared_ptr<AutomationControl> candidate = mapped_control(mapping.first, band);
++				// A parameter with a different DSP port/name is not the same knob.
++				if (candidate && candidate->desc().label == control->desc().label) {
++					return candidate;
++				}
++				return std::shared_ptr<AutomationControl>();
++			}
++		}
++	}
++
++	if (source.gain_control() == control) return gain_control();
++	if (source.trim_control() == control) return trim_control();
++	if (source.pan_azimuth_control() == control) return pan_azimuth_control();
++	if (source.pan_width_control() == control) return pan_width_control();
++	if (source.pan_elevation_control() == control) return pan_elevation_control();
++	if (source.pan_frontback_control() == control) return pan_frontback_control();
++	if (source.pan_lfe_control() == control) return pan_lfe_control();
++	if (source.master_send_enable_controllable() == control) return master_send_enable_controllable();
++
++	// Built-in bus slots have a stable destination across channelstrips.
++	if (source._mixbus_send && _mixbus_send) {
++		uint32_t n = std::min(source._mixbus_send->n_busses(), _mixbus_send->n_busses());
++		for (uint32_t bus = 0; bus < n; ++bus) {
++			if (source.send_level_controllable(bus) == control) return send_level_controllable(bus);
++			if (source.send_enable_controllable(bus) == control) return send_enable_controllable(bus);
++			if (source.send_point_controllable(bus) == control) return send_point_controllable(bus);
++			if (source.send_pan_azimuth_controllable(bus) == control) return send_pan_azimuth_controllable(bus);
++			if (source.send_pan_azimuth_enable_controllable(bus) == control) return send_pan_azimuth_enable_controllable(bus);
++		}
++	}
++
++	// Auxiliary send order can differ: identify the receiving bus instead.
++	for (uint32_t i = 0; ; ++i) {
++		std::shared_ptr<Send> send = std::dynamic_pointer_cast<Send>(source.nth_send(i));
++		if (!send) break;
++		if (send->gain_control() != control) continue;
++		std::shared_ptr<InternalSend> internal = std::dynamic_pointer_cast<InternalSend>(send);
++		if (!internal) return std::shared_ptr<AutomationControl>();
++		for (uint32_t j = 0; ; ++j) {
++			std::shared_ptr<InternalSend> other = std::dynamic_pointer_cast<InternalSend>(nth_send(j));
++			if (!nth_send(j)) break;
++			if (other && other->target_id() == internal->target_id()) return other->gain_control();
++		}
++		return std::shared_ptr<AutomationControl>();
++	}
++
++	Evoral::Parameter const& param = control->parameter();
++	if (param.type() != PluginAutomation) {
++		std::shared_ptr<AutomationControl> owned = const_cast<Route&>(source).automation_control(param, false);
++		if (owned == control) return const_cast<Route*>(this)->automation_control(param, false);
++		return std::shared_ptr<AutomationControl>();
++	}
++
++	// User plugins: same format, unique ID and occurrence, never an unrelated slot.
++	std::map<std::pair<PluginType, std::string>, uint32_t> occurrences;
++	for (uint32_t i = 0; ; ++i) {
++		std::shared_ptr<PluginInsert> insert = std::dynamic_pointer_cast<PluginInsert>(source.nth_plugin(i));
++		if (!insert) break;
++		std::shared_ptr<Plugin> plug = insert->plugin(0);
++		if (!plug || !plug->get_info()) continue;
++		auto identity = std::make_pair(plug->get_info()->type, plug->unique_id());
++		uint32_t occurrence = occurrences[identity]++;
++		if (insert->automation_control(param, false) != control) continue;
++		for (uint32_t j = 0; ; ++j) {
++			std::shared_ptr<PluginInsert> other = std::dynamic_pointer_cast<PluginInsert>(nth_plugin(j));
++			if (!other) break;
++			std::shared_ptr<Plugin> op = other->plugin(0);
++			if (!op || !op->get_info() || op->get_info()->type != identity.first || op->unique_id() != identity.second) continue;
++			if (occurrence-- == 0) return other->automation_control(param, false);
++		}
++		return std::shared_ptr<AutomationControl>();
++	}
++	return std::shared_ptr<AutomationControl>();
++}
++#endif
++
+ std::shared_ptr<Processor>
+ Route::nth_plugin (uint32_t n) const
+ {
+diff --git a/tests/selected-controls/create_gui_session.lua b/tests/selected-controls/create_gui_session.lua
+new file mode 100644
+index 0000000..00e2250
+--- /dev/null
++++ b/tests/selected-controls/create_gui_session.lua
+@@ -0,0 +1,16 @@
++local path=assert(os.getenv('MIXBUS_NATIVE_GUI_SESSION'))
++assert(create_session(path,'NativeGUIVerification',48000))
++local tracks=Session:new_audio_track(1,2,ARDOUR.RouteGroup(),3,'Native Control',1,ARDOUR.TrackMode.Normal,true)
++local r={};for route in tracks:iter() do r[#r+1]=route end
++local group=Session:new_route_group('Selected Pair')
++group:set_select(true);group:add(r[1]);group:add(r[2])
++Session:selection():clear_stripables()
++for i=1,20 do
++ Session:selection():select_next_stripable(true,true)
++ if r[1]:is_selected() and r[2]:is_selected() then break end
++end
++Session:save_state('NativeGUIVerification',false,false,false)
++for _,route in ipairs(r) do group:remove(route) end
++tracks=nil;r=nil;group=nil;collectgarbage('collect')
++close_session()
++print('GUI verification session created')
+diff --git a/tests/selected-controls/create_plugin_gui_session.lua b/tests/selected-controls/create_plugin_gui_session.lua
+new file mode 100644
+index 0000000..1691b0a
+--- /dev/null
++++ b/tests/selected-controls/create_plugin_gui_session.lua
+@@ -0,0 +1,23 @@
++local path=assert(os.getenv('MIXBUS_NATIVE_GUI_SESSION'))
++assert(create_session(path,'NativeGUIVerification',48000))
++local tracks=Session:new_audio_track(1,2,ARDOUR.RouteGroup(),3,'Native Control',1,ARDOUR.TrackMode.Normal,true)
++local r={};for route in tracks:iter() do r[#r+1]=route end
++local group=Session:new_route_group('Selected Pair')
++group:set_select(true);group:add(r[1]);group:add(r[2])
++Session:selection():clear_stripables()
++for i=1,20 do
++ Session:selection():select_next_stripable(true,true)
++ if r[1]:is_selected() and r[2]:is_selected() then break end
++end
++for _,route in ipairs(r) do
++ for _,uri in ipairs({'http://harrisonconsoles.com/lv2/mbDrum/mono','urn:ardour:a-reverb'}) do
++  local proc=ARDOUR.LuaAPI.new_plugin(Session,uri,ARDOUR.PluginType.LV2,'')
++  assert(not proc:isnil(),uri)
++  assert(route:add_processor_by_index(proc,-1,nil,true)==0,uri)
++ end
++end
++Session:save_state('NativeGUIVerification' ,false,false,false)
++for _,route in ipairs(r) do group:remove(route) end
++tracks=nil;r=nil;group=nil;collectgarbage('collect')
++close_session()
++print('GUI verification session created')
+diff --git a/tests/selected-controls/gui-custom-lv2-result.json b/tests/selected-controls/gui-custom-lv2-result.json
+new file mode 100644
+index 0000000..e695a4b
+--- /dev/null
++++ b/tests/selected-controls/gui-custom-lv2-result.json
+@@ -0,0 +1,90 @@
++{
++  "before": {
++    "Native Control 1": {
++      "mix": "0.5",
++      "time": "4.0999999046325684",
++      "damping": "0.80000001192092896",
++      "bandwidth": "0.30000001192092896",
++      "size": "225",
++      "early": "0.40000000596046448",
++      "bal": "0.10000000149011612",
++      "hipass": "400",
++      "lopass": "400",
++      "inhp": "20",
++      "predelay": "0",
++      "wet": "-5"
++    },
++    "Native Control 2": {
++      "mix": "0.5",
++      "time": "4.0999999046325684",
++      "damping": "0.80000001192092896",
++      "bandwidth": "0.30000001192092896",
++      "size": "225",
++      "early": "0.40000000596046448",
++      "bal": "0.10000000149011612",
++      "hipass": "400",
++      "lopass": "400",
++      "inhp": "20",
++      "predelay": "0",
++      "wet": "-5"
++    },
++    "Native Control 3": {
++      "mix": "0.5",
++      "time": "4.0999999046325684",
++      "damping": "0.80000001192092896",
++      "bandwidth": "0.30000001192092896",
++      "size": "225",
++      "early": "0.40000000596046448",
++      "bal": "0.10000000149011612",
++      "hipass": "400",
++      "lopass": "400",
++      "inhp": "20",
++      "predelay": "0",
++      "wet": "-5"
++    }
++  },
++  "after": {
++    "Native Control 1": {
++      "mix": "0.60500001907348633",
++      "time": "4.0999999046325684",
++      "damping": "0.80000001192092896",
++      "bandwidth": "0.30000001192092896",
++      "size": "225",
++      "early": "0.40000000596046448",
++      "bal": "0.10000000149011612",
++      "hipass": "400",
++      "lopass": "400",
++      "inhp": "20",
++      "predelay": "0",
++      "wet": "-5"
++    },
++    "Native Control 2": {
++      "mix": "0.60500001907348633",
++      "time": "4.0999999046325684",
++      "damping": "0.80000001192092896",
++      "bandwidth": "0.30000001192092896",
++      "size": "225",
++      "early": "0.40000000596046448",
++      "bal": "0.10000000149011612",
++      "hipass": "400",
++      "lopass": "400",
++      "inhp": "20",
++      "predelay": "0",
++      "wet": "-5"
++    },
++    "Native Control 3": {
++      "mix": "0.5",
++      "time": "4.0999999046325684",
++      "damping": "0.80000001192092896",
++      "bandwidth": "0.30000001192092896",
++      "size": "225",
++      "early": "0.40000000596046448",
++      "bal": "0.10000000149011612",
++      "hipass": "400",
++      "lopass": "400",
++      "inhp": "20",
++      "predelay": "0",
++      "wet": "-5"
++    }
++  }
++}
+diff --git a/tests/selected-controls/gui-drum-character-result.json b/tests/selected-controls/gui-drum-character-result.json
+new file mode 100644
+index 0000000..4dae93c
+--- /dev/null
++++ b/tests/selected-controls/gui-drum-character-result.json
+@@ -0,0 +1,215 @@
++{
++  "before": {
++    "Native Control 1": {
++      "threshold": "-10",
++      "attack": "20",
++      "tail": "100",
++      "trim": "0",
++      "attk1gain": "0",
++      "attk1freq": "300",
++      "attk1Q": "1",
++      "attk1shape": "0",
++      "attk2gain": "0",
++      "attk2freq": "1200",
++      "attk2Q": "1",
++      "attk2shape": "0",
++      "tail1gain": "3",
++      "tail1freq": "300",
++      "tail1Q": "1",
++      "tail1shape": "0",
++      "tail2gain": "0",
++      "tail2freq": "1200",
++      "tail2Q": "1",
++      "tail2shape": "0",
++      "In": "1"
++    },
++    "Native Control 2": {
++      "threshold": "-10",
++      "attack": "20",
++      "tail": "100",
++      "trim": "0",
++      "attk1gain": "0",
++      "attk1freq": "300",
++      "attk1Q": "1",
++      "attk1shape": "0",
++      "attk2gain": "0",
++      "attk2freq": "1200",
++      "attk2Q": "1",
++      "attk2shape": "0",
++      "tail1gain": "3",
++      "tail1freq": "300",
++      "tail1Q": "1",
++      "tail1shape": "0",
++      "tail2gain": "0",
++      "tail2freq": "1200",
++      "tail2Q": "1",
++      "tail2shape": "0",
++      "In": "1"
++    },
++    "Native Control 3": {
++      "threshold": "-10",
++      "attack": "20",
++      "tail": "100",
++      "trim": "0",
++      "attk1gain": "0",
++      "attk1freq": "300",
++      "attk1Q": "1",
++      "attk1shape": "0",
++      "attk2gain": "0",
++      "attk2freq": "1200",
++      "attk2Q": "1",
++      "attk2shape": "0",
++      "tail1gain": "3",
++      "tail1freq": "300",
++      "tail1Q": "1",
++      "tail1shape": "0",
++      "tail2gain": "0",
++      "tail2freq": "1200",
++      "tail2Q": "1",
++      "tail2shape": "0",
++      "In": "1"
++    }
++  },
++  "graph_drag": {
++    "Native Control 1": {
++      "threshold": "-10",
++      "attack": "20",
++      "tail": "100",
++      "trim": "0",
++      "attk1gain": "4.7292671203613281",
++      "attk1freq": "300.00003051757812",
++      "attk1Q": "1",
++      "attk1shape": "0",
++      "attk2gain": "0",
++      "attk2freq": "1200",
++      "attk2Q": "1",
++      "attk2shape": "0",
++      "tail1gain": "3",
++      "tail1freq": "300",
++      "tail1Q": "1",
++      "tail1shape": "0",
++      "tail2gain": "0",
++      "tail2freq": "1200",
++      "tail2Q": "1",
++      "tail2shape": "0",
++      "In": "1"
++    },
++    "Native Control 2": {
++      "threshold": "-10",
++      "attack": "20",
++      "tail": "100",
++      "trim": "0",
++      "attk1gain": "4.7292671203613281",
++      "attk1freq": "300.00003051757812",
++      "attk1Q": "1",
++      "attk1shape": "0",
++      "attk2gain": "0",
++      "attk2freq": "1200",
++      "attk2Q": "1",
++      "attk2shape": "0",
++      "tail1gain": "3",
++      "tail1freq": "300",
++      "tail1Q": "1",
++      "tail1shape": "0",
++      "tail2gain": "0",
++      "tail2freq": "1200",
++      "tail2Q": "1",
++      "tail2shape": "0",
++      "In": "1"
++    },
++    "Native Control 3": {
++      "threshold": "-10",
++      "attack": "20",
++      "tail": "100",
++      "trim": "0",
++      "attk1gain": "0",
++      "attk1freq": "300",
++      "attk1Q": "1",
++      "attk1shape": "0",
++      "attk2gain": "0",
++      "attk2freq": "1200",
++      "attk2Q": "1",
++      "attk2shape": "0",
++      "tail1gain": "3",
++      "tail1freq": "300",
++      "tail1Q": "1",
++      "tail1shape": "0",
++      "tail2gain": "0",
++      "tail2freq": "1200",
++      "tail2Q": "1",
++      "tail2shape": "0",
++      "In": "1"
++    }
++  },
++  "preset": {
++    "Native Control 1": {
++      "threshold": "-10",
++      "attack": "40",
++      "tail": "420",
++      "trim": "0",
++      "attk1gain": "0",
++      "attk1freq": "400",
++      "attk1Q": "0.69999998807907104",
++      "attk1shape": "1",
++      "attk2gain": "0",
++      "attk2freq": "800",
++      "attk2Q": "0.69999998807907104",
++      "attk2shape": "1",
++      "tail1gain": "-9",
++      "tail1freq": "400",
++      "tail1Q": "0.69999998807907104",
++      "tail1shape": "0",
++      "tail2gain": "0",
++      "tail2freq": "800",
++      "tail2Q": "0.69999998807907104",
++      "tail2shape": "0",
++      "In": "1"
++    },
++    "Native Control 2": {
++      "threshold": "-10",
++      "attack": "40",
++      "tail": "420",
++      "trim": "0",
++      "attk1gain": "0",
++      "attk1freq": "400",
++      "attk1Q": "0.69999998807907104",
++      "attk1shape": "1",
++      "attk2gain": "0",
++      "attk2freq": "800",
++      "attk2Q": "0.69999998807907104",
++      "attk2shape": "1",
++      "tail1gain": "-9",
++      "tail1freq": "400",
++      "tail1Q": "0.69999998807907104",
++      "tail1shape": "0",
++      "tail2gain": "0",
++      "tail2freq": "800",
++      "tail2Q": "0.69999998807907104",
++      "tail2shape": "0",
++      "In": "1"
++    },
++    "Native Control 3": {
++      "threshold": "-10",
++      "attack": "20",
++      "tail": "100",
++      "trim": "0",
++      "attk1gain": "0",
++      "attk1freq": "300",
++      "attk1Q": "1",
++      "attk1shape": "0",
++      "attk2gain": "0",
++      "attk2freq": "1200",
++      "attk2Q": "1",
++      "attk2shape": "0",
++      "tail1gain": "3",
++      "tail1freq": "300",
++      "tail1Q": "1",
++      "tail1shape": "0",
++      "tail2gain": "0",
++      "tail2freq": "1200",
++      "tail2Q": "1",
++      "tail2shape": "0",
++      "In": "1"
++    }
++  }
++}
+diff --git a/tests/selected-controls/gui-fader-result.json b/tests/selected-controls/gui-fader-result.json
+new file mode 100644
+index 0000000..e90b23b
+--- /dev/null
++++ b/tests/selected-controls/gui-fader-result.json
+@@ -0,0 +1,58 @@
++{
++  "before": {
++    "Native Control 1": {
++      "amp": "1",
++      "trim": "1"
++    },
++    "Native Control 2": {
++      "amp": "1",
++      "trim": "1"
++    },
++    "Native Control 3": {
++      "amp": "1",
++      "trim": "1"
++    }
++  },
++  "off": {
++    "Native Control 1": {
++      "amp": "0",
++      "trim": "1"
++    },
++    "Native Control 2": {
++      "amp": "0",
++      "trim": "1"
++    },
++    "Native Control 3": {
++      "amp": "1",
++      "trim": "1"
++    }
++  },
++  "on": {
++    "Native Control 1": {
++      "amp": "1",
++      "trim": "1"
++    },
++    "Native Control 2": {
++      "amp": "1",
++      "trim": "1"
++    },
++    "Native Control 3": {
++      "amp": "1",
++      "trim": "1"
++    }
++  },
++  "shift": {
++    "Native Control 1": {
++      "amp": "0",
++      "trim": "1"
++    },
++    "Native Control 2": {
++      "amp": "1",
++      "trim": "1"
++    },
++    "Native Control 3": {
++      "amp": "1",
++      "trim": "1"
++    }
++  }
++}
+diff --git a/tests/selected-controls/gui-led-result.json b/tests/selected-controls/gui-led-result.json
+new file mode 100644
+index 0000000..d28cefa
+--- /dev/null
++++ b/tests/selected-controls/gui-led-result.json
+@@ -0,0 +1,70 @@
++{
++  "before": {
++    "Native Control 1": {
++      "Gate": "1",
++      "32C EQ": "1",
++      "Comp": "1"
++    },
++    "Native Control 2": {
++      "Gate": "1",
++      "32C EQ": "1",
++      "Comp": "1"
++    },
++    "Native Control 3": {
++      "Gate": "0",
++      "32C EQ": "0",
++      "Comp": "0"
++    }
++  },
++  "off": {
++    "Native Control 1": {
++      "Gate": "0",
++      "32C EQ": "1",
++      "Comp": "1"
++    },
++    "Native Control 2": {
++      "Gate": "0",
++      "32C EQ": "1",
++      "Comp": "1"
++    },
++    "Native Control 3": {
++      "Gate": "0",
++      "32C EQ": "0",
++      "Comp": "0"
++    }
++  },
++  "mixed": {
++    "Native Control 1": {
++      "Gate": "1",
++      "32C EQ": "0",
++      "Comp": "0"
++    },
++    "Native Control 2": {
++      "Gate": "1",
++      "32C EQ": "0",
++      "Comp": "0"
++    },
++    "Native Control 3": {
++      "Gate": "0",
++      "32C EQ": "0",
++      "Comp": "0"
++    }
++  },
++  "on": {
++    "Native Control 1": {
++      "Gate": "1",
++      "32C EQ": "1",
++      "Comp": "1"
++    },
++    "Native Control 2": {
++      "Gate": "1",
++      "32C EQ": "1",
++      "Comp": "1"
++    },
++    "Native Control 3": {
++      "Gate": "0",
++      "32C EQ": "0",
++      "Comp": "0"
++    }
++  }
++}
+diff --git a/tests/selected-controls/gui-plugin-chain-result.json b/tests/selected-controls/gui-plugin-chain-result.json
+new file mode 100644
+index 0000000..aa2e486
+--- /dev/null
++++ b/tests/selected-controls/gui-plugin-chain-result.json
+@@ -0,0 +1,182 @@
++{
++  "insert": {
++    "Native Control 1": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3402"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "3446"
++      },
++      {
++        "name": "ACE Delay",
++        "id": "11243"
++      }
++    ],
++    "Native Control 2": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3454"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "3498"
++      },
++      {
++        "name": "ACE Delay",
++        "id": "11220"
++      }
++    ],
++    "Native Control 3": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3506"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "3550"
++      }
++    ]
++  },
++  "hover-deleted": {
++    "Native Control 1": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3402"
++      },
++      {
++        "name": "ACE Delay",
++        "id": "11243"
++      }
++    ],
++    "Native Control 2": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3454"
++      },
++      {
++        "name": "ACE Delay",
++        "id": "11220"
++      }
++    ],
++    "Native Control 3": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3506"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "3550"
++      }
++    ]
++  },
++  "shift-deleted": {
++    "Native Control 1": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3402"
++      },
++      {
++        "name": "ACE Delay",
++        "id": "11243"
++      }
++    ],
++    "Native Control 2": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3454"
++      }
++    ],
++    "Native Control 3": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3506"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "3550"
++      }
++    ]
++  },
++  "repeated": {
++    "Native Control 1": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3402"
++      },
++      {
++        "name": "ACE Delay",
++        "id": "11243"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "15178"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "15206"
++      }
++    ],
++    "Native Control 2": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3454"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "15169"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "15197"
++      }
++    ],
++    "Native Control 3": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3506"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "3550"
++      }
++    ]
++  },
++  "repeated-deleted": {
++    "Native Control 1": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3402"
++      },
++      {
++        "name": "ACE Delay",
++        "id": "11243"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "15178"
++      }
++    ],
++    "Native Control 2": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3454"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "15169"
++      }
++    ],
++    "Native Control 3": [
++      {
++        "name": "XT-DC Drum Character (Mono)",
++        "id": "3506"
++      },
++      {
++        "name": "ACE Reverb",
++        "id": "3550"
++      }
++    ]
++  }
++}
+diff --git a/tests/selected-controls/gui-plugin-window-result.json b/tests/selected-controls/gui-plugin-window-result.json
+new file mode 100644
+index 0000000..0ec9f2f
+--- /dev/null
++++ b/tests/selected-controls/gui-plugin-window-result.json
+@@ -0,0 +1,133 @@
++{
++  "single": {
++    "routes": {
++      "Native Control 1": [
++        {
++          "name": "ACE Delay",
++          "id": "10726"
++        },
++        {
++          "name": "ACE Reverb",
++          "id": "10795"
++        }
++      ],
++      "Native Control 2": [
++        {
++          "name": "ACE Delay",
++          "id": "10749"
++        },
++        {
++          "name": "ACE Reverb",
++          "id": "10804"
++        }
++      ],
++      "Native Control 3": []
++    },
++    "visible_plugin_windows": [
++      {
++        "name": "P-2036-10726",
++        "visible": "1",
++        "x-off": "400",
++        "y-off": "350",
++        "x-size": "535",
++        "y-size": "388",
++        "custom-ui": "1"
++      }
++    ],
++    "selected_stripables": [
++      "2036",
++      "2490"
++    ]
++  },
++  "all": {
++    "routes": {
++      "Native Control 1": [
++        {
++          "name": "ACE Delay",
++          "id": "10726"
++        },
++        {
++          "name": "ACE Reverb",
++          "id": "10795"
++        },
++        {
++          "name": "ACE Delay",
++          "id": "10824"
++        },
++        {
++          "name": "ACE Reverb",
++          "id": "10893"
++        }
++      ],
++      "Native Control 2": [
++        {
++          "name": "ACE Delay",
++          "id": "10749"
++        },
++        {
++          "name": "ACE Reverb",
++          "id": "10804"
++        },
++        {
++          "name": "ACE Delay",
++          "id": "10847"
++        },
++        {
++          "name": "ACE Reverb",
++          "id": "10902"
++        }
++      ],
++      "Native Control 3": []
++    },
++    "visible_plugin_windows": [
++      {
++        "name": "P-2036-10824",
++        "visible": "1",
++        "x-off": "365",
++        "y-off": "170",
++        "x-size": "535",
++        "y-size": "388",
++        "custom-ui": "1"
++      },
++      {
++        "name": "P-2490-10847",
++        "visible": "1",
++        "x-off": "910",
++        "y-off": "170",
++        "x-size": "535",
++        "y-size": "388",
++        "custom-ui": "1"
++      },
++      {
++        "name": "P-2036-10893",
++        "visible": "1",
++        "x-off": "365",
++        "y-off": "610",
++        "x-size": "509",
++        "y-size": "248",
++        "custom-ui": "1"
++      },
++      {
++        "name": "P-2490-10902",
++        "visible": "1",
++        "x-off": "910",
++        "y-off": "610",
++        "x-size": "509",
++        "y-size": "248",
++        "custom-ui": "1"
++      }
++    ],
++    "selected_stripables": [
++      "2036",
++      "2490"
++    ]
++  },
++  "locale": "fr",
++  "menu_unchecked": "all newly added instance windows",
++  "menu_checked": "first newly added instance window only",
++  "preference_persisted_on_clean_exit": true,
++  "saved_single_window_preference": "1",
++  "menu_label_message_id": "Show only one plugin window at a time",
++  "localized_label_verified": true,
++  "documentation_screenshot_locale": "en_US"
++}
+diff --git a/tests/selected-controls/gui-result.json b/tests/selected-controls/gui-result.json
+new file mode 100644
+index 0000000..828b7d2
+--- /dev/null
++++ b/tests/selected-controls/gui-result.json
+@@ -0,0 +1,110 @@
++{
++  "passed": true,
++  "gesture": "mouse drag on Lo Gain",
++  "before": {
++    "Native Control 1": {
++      "1": 0.0,
++      "2": 0.0,
++      "3": 0.0,
++      "4": 0.0,
++      "5": 0.0,
++      "6": 1.0,
++      "7": 0.5,
++      "8": 0.5,
++      "9": 0.5,
++      "10": 0.5,
++      "11": 0.5,
++      "12": 0.5,
++      "13": 0.5,
++      "14": 0.5,
++      "15": 1.0
++    },
++    "Native Control 2": {
++      "1": 0.0,
++      "2": 0.0,
++      "3": 0.0,
++      "4": 0.0,
++      "5": 0.0,
++      "6": 1.0,
++      "7": 0.5,
++      "8": 0.5,
++      "9": 0.5,
++      "10": 0.5,
++      "11": 0.5,
++      "12": 0.5,
++      "13": 0.5,
++      "14": 0.5,
++      "15": 1.0
++    },
++    "Native Control 3": {
++      "1": 0.0,
++      "2": 0.0,
++      "3": 0.0,
++      "4": 0.0,
++      "5": 0.0,
++      "6": 1.0,
++      "7": 0.5,
++      "8": 0.5,
++      "9": 0.5,
++      "10": 0.5,
++      "11": 0.5,
++      "12": 0.5,
++      "13": 0.5,
++      "14": 0.5,
++      "15": 1.0
++    }
++  },
++  "after": {
++    "Native Control 1": {
++      "1": 1.0,
++      "2": 0.0,
++      "3": 0.0,
++      "4": 0.0,
++      "5": 0.0,
++      "6": 1.0,
++      "7": 0.5,
++      "8": 0.5,
++      "9": 0.5,
++      "10": 0.5,
++      "11": 0.5,
++      "12": 0.5,
++      "13": 0.5,
++      "14": 0.5999999046325684,
++      "15": 1.0
++    },
++    "Native Control 2": {
++      "1": 1.0,
++      "2": 0.0,
++      "3": 0.0,
++      "4": 0.0,
++      "5": 0.0,
++      "6": 1.0,
++      "7": 0.5,
++      "8": 0.5,
++      "9": 0.5,
++      "10": 0.5,
++      "11": 0.5,
++      "12": 0.5,
++      "13": 0.5,
++      "14": 0.5999999046325684,
++      "15": 1.0
++    },
++    "Native Control 3": {
++      "1": 0.0,
++      "2": 0.0,
++      "3": 0.0,
++      "4": 0.0,
++      "5": 0.0,
++      "6": 1.0,
++      "7": 0.5,
++      "8": 0.5,
++      "9": 0.5,
++      "10": 0.5,
++      "11": 0.5,
++      "12": 0.5,
++      "13": 0.5,
++      "14": 0.5,
++      "15": 1.0
++    }
++  }
++}
+diff --git a/tests/selected-controls/integration.lua b/tests/selected-controls/integration.lua
+new file mode 100644
+index 0000000..fcd5e62
+--- /dev/null
++++ b/tests/selected-controls/integration.lua
+@@ -0,0 +1,100 @@
++local path=assert(os.getenv('MIXBUS_NATIVE_TEST_SESSION'))
++assert(create_session(path,'NativeControlsTest',48000))
++local tracks=Session:new_audio_track(1,2,ARDOUR.RouteGroup(),3,'Native Link Test',1,ARDOUR.TrackMode.Normal,true)
++local r={};for route in tracks:iter() do r[#r+1]=route end
++assert(#r==3)
++local group=Session:new_route_group('Selected Pair')
++group:set_select(true);group:add(r[1]);group:add(r[2])
++Session:selection():clear_stripables()
++for i=1,20 do
++ Session:selection():select_next_stripable(true,true)
++ if r[1]:is_selected() and r[2]:is_selected() then break end
++end
++assert(r[1]:is_selected() and r[2]:is_selected() and not r[3]:is_selected(),'selection fixture')
++local use=PBD.GroupControlDisposition.UseGroup
++local no=PBD.GroupControlDisposition.NoGroup
++local checks,updates=0,0
++local function close(a,b) return math.abs(a-b)<1e-5*math.max(1,math.abs(a),math.abs(b)) end
++local function check(a,b,c,name)
++ if a:isnil() or b:isnil() then return end
++ local untouched=not c:isnil() and c:get_value() or nil
++ for step=1,5 do
++  local value=a:lower()+(a:upper()-a:lower())*(step/6)
++  a:set_value(value,use)
++  assert(close(a:get_value(),b:get_value()),name..' did not follow: '..a:get_value()..' / '..b:get_value())
++  if untouched then assert(c:get_value()==untouched,name..' changed unselected channel') end
++  updates=updates+1
++ end
++ checks=checks+1
++ print('PASS',name)
++end
++local kinds=ARDOUR.WellKnownCtrl
++for _,name in ipairs({'EQ_BandGain','EQ_BandFreq','EQ_BandQ','EQ_BandShape'}) do
++ for band=0,3 do
++  check(r[1]:mapped_control(kinds[name],band),r[2]:mapped_control(kinds[name],band),r[3]:mapped_control(kinds[name],band),name..' '..band)
++ end
++end
++for _,name in ipairs({'EQ_Enable','HPF_Enable','HPF_Freq','HPF_Slope','LPF_Enable','LPF_Freq','LPF_Slope','Comp_Enable','Comp_Threshold','Comp_Makeup','Comp_Ratio','Comp_Attack','Comp_Release','Comp_KeyFilterFreq','Comp_Mix','Comp_Lookahead','Comp_FastAttack','Gate_Enable','Gate_Threshold','Gate_Attack','Gate_Hold','Gate_Release','Gate_Depth','Gate_Hysteresis','Gate_Ratio','Gate_KeyFilterFreq','Gate_KeyFilterEnable','Gate_Lookahead','Gate_FastAttack','DeEss_Enable','DeEss_Threshold','DeEss_Attack','DeEss_EssDepth','DeEss_EssFreq','DeEss_HiDepth','DeEss_HiFreq','Denoise_Enable','Denoise_Threshold','Denoise_DepthLow','Denoise_DepthHigh','TapeDrive_Drive'}) do
++ if kinds[name] then check(r[1]:mapped_control(kinds[name],0),r[2]:mapped_control(kinds[name],0),r[3]:mapped_control(kinds[name],0),name) end
++end
++for bus=0,11 do
++ check(r[1]:send_level_controllable(bus),r[2]:send_level_controllable(bus),r[3]:send_level_controllable(bus),'Send gain '..bus)
++ check(r[1]:send_enable_controllable(bus),r[2]:send_enable_controllable(bus),r[3]:send_enable_controllable(bus),'Send enable '..bus)
++end
++check(r[1]:pan_azimuth_control(),r[2]:pan_azimuth_control(),r[3]:pan_azimuth_control(),'Pan position')
++check(r[1]:trim_control(),r[2]:trim_control(),r[3]:trim_control(),'Trim')
++-- Match plugin identity/occurrence even if processor positions differ.
++local function add_plugin(route,uri)
++ local proc=ARDOUR.LuaAPI.new_plugin(Session,uri,ARDOUR.PluginType.LV2,'')
++ assert(not proc:isnil(),'missing test plugin '..uri)
++ assert(route:add_processor_by_index(proc,-1,nil,true)==0,'cannot insert test plugin')
++ return proc
++end
++local unrelated=add_plugin(r[2],'urn:ardour:a-comp')
++local plugins={}
++for i=1,3 do plugins[i]=add_plugin(r[i],'urn:ardour:a-eq') end
++local param=Evoral.Parameter(ARDOUR.AutomationType.PluginAutomation,0,3)
++local pc={}
++for i=1,3 do pc[i]=plugins[i]:to_automatable():automation_control(param,false) end
++check(pc[1],pc[2],pc[3],'Plugin identity with different processor positions')
++-- Reverb parameters use the same identity/port mapping as EQ inserts.
++local reverbs={}
++for i=1,3 do reverbs[i]=add_plugin(r[i],'urn:ardour:a-reverb') end
++for port=4,8 do
++ local rp=Evoral.Parameter(ARDOUR.AutomationType.PluginAutomation,0,port)
++ check(reverbs[1]:to_automatable():automation_control(rp,false),reverbs[2]:to_automatable():automation_control(rp,false),reverbs[3]:to_automatable():automation_control(rp,false),'ACE Reverb port '..port)
++end
++reverbs=nil;collectgarbage('collect')
++local second={}
++for i=1,2 do second[i]=add_plugin(r[i],'urn:ardour:a-eq') end
++local sa=second[1]:to_automatable():automation_control(param,false)
++local sb=second[2]:to_automatable():automation_control(param,false)
++local first_value=pc[2]:get_value()
++sa:set_value(3.0,use)
++assert(close(sb:get_value(),3.0),'second plugin occurrence did not follow')
++assert(pc[2]:get_value()==first_value,'wrong occurrence of plugin changed')
++print('PASS repeated plugin occurrence matching')
++local original_config=ARDOUR.config():get_implicit_selection_op_groups()
++ARDOUR.config():set_implicit_selection_op_groups(false)
++sa:set_value(4.0,use)
++assert(close(sb:get_value(),3.0),'quick-group preference ignored')
++ARDOUR.config():set_implicit_selection_op_groups(original_config)
++print('PASS quick-group preference disables native link')
++plugins=nil;pc=nil;second=nil;sa=nil;sb=nil;unrelated=nil;collectgarbage('collect')
++local a=r[1]:mapped_control(kinds.EQ_BandGain,0)
++local b=r[2]:mapped_control(kinds.EQ_BandGain,0)
++a:set_value(.5,use)
++a:set_value(.6,no)
++assert(close(b:get_value(),.5),'NoGroup override ignored')
++a:set_value(.65,use);assert(close(b:get_value(),.65),'link after override')
++b:set_automation_state(ARDOUR.AutoState.Play)
++a:set_value(.7,use);assert(close(b:get_value(),.65),'automated target changed')
++b:set_automation_state(ARDOUR.AutoState.Off)
++Session:selection():clear_stripables()
++a:set_value(.8,use);assert(close(b:get_value(),.65),'deselection ignored')
++print('PASS NoGroup override, target automation, deselection')
++for _,route in ipairs(r) do group:remove(route) end
++tracks=nil;r=nil;group=nil;a=nil;b=nil;collectgarbage('collect')
++close_session()
++print('ALL TESTS PASSED:',checks,'controls;',updates,'synchronous updates; clean teardown')
++io.stdout:flush()
+-- 
+2.56.0
+
